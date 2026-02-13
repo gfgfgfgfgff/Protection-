@@ -6,7 +6,9 @@ import asyncio
 from typing import Optional, List
 import re
 import os
-from config import BOT_TOKEN, OWNER_IDS
+import io
+import json
+from config import BOT_TOKEN, OWNER_IDS, ADMIN_IDS
 
 # Configuration
 DISCORD_INVITE_REGEX = r'(?:https?://)?(?:www\.)?(?:discord\.(?:gg|io|me|com)|discordapp\.com/invite)/[a-zA-Z0-9]+'
@@ -70,6 +72,69 @@ class Database:
         
         for module, status in default_modules:
             self.c.execute('INSERT OR IGNORE INTO modules VALUES (?, ?)', (module, status))
+        
+        self.conn.commit()
+    
+    def export_db(self):
+        """Exporte toute la base de données en dictionnaire"""
+        data = {
+            'whitelist': [],
+            'sys_users': [],
+            'punishments': [],
+            'modules': [],
+            'limit_roles': []
+        }
+        
+        # Export whitelist
+        self.c.execute('SELECT user_id, actions FROM whitelist')
+        data['whitelist'] = [{'user_id': row[0], 'actions': row[1]} for row in self.c.fetchall()]
+        
+        # Export sys_users
+        self.c.execute('SELECT user_id FROM sys_users')
+        data['sys_users'] = [row[0] for row in self.c.fetchall()]
+        
+        # Export punishments
+        self.c.execute('SELECT action, sanction FROM punishments')
+        data['punishments'] = [{'action': row[0], 'sanction': row[1]} for row in self.c.fetchall()]
+        
+        # Export modules
+        self.c.execute('SELECT module, status FROM modules')
+        data['modules'] = [{'module': row[0], 'status': row[1]} for row in self.c.fetchall()]
+        
+        # Export limit_roles
+        self.c.execute('SELECT role_id, role_name FROM limit_roles')
+        data['limit_roles'] = [{'role_id': row[0], 'role_name': row[1]} for row in self.c.fetchall()]
+        
+        return data
+    
+    def import_db(self, data):
+        """Importe les données dans la base de données"""
+        # Nettoyer les tables existantes
+        self.c.execute('DELETE FROM whitelist')
+        self.c.execute('DELETE FROM sys_users')
+        self.c.execute('DELETE FROM punishments')
+        self.c.execute('DELETE FROM modules')
+        self.c.execute('DELETE FROM limit_roles')
+        
+        # Import whitelist
+        for item in data['whitelist']:
+            self.c.execute('INSERT INTO whitelist VALUES (?, ?)', (item['user_id'], item['actions']))
+        
+        # Import sys_users
+        for user_id in data['sys_users']:
+            self.c.execute('INSERT INTO sys_users VALUES (?)', (user_id,))
+        
+        # Import punishments
+        for item in data['punishments']:
+            self.c.execute('INSERT INTO punishments VALUES (?, ?)', (item['action'], item['sanction']))
+        
+        # Import modules
+        for item in data['modules']:
+            self.c.execute('INSERT INTO modules VALUES (?, ?)', (item['module'], item['status']))
+        
+        # Import limit_roles
+        for item in data['limit_roles']:
+            self.c.execute('INSERT INTO limit_roles VALUES (?, ?)', (item['role_id'], item['role_name']))
         
         self.conn.commit()
     
@@ -180,17 +245,103 @@ class SecurityBot(commands.Bot):
 
 bot = SecurityBot()
 
-# Vérification propriétaire
+# Vérifications
 def is_owner():
     async def predicate(interaction: discord.Interaction):
         return interaction.user.id in OWNER_IDS
     return app_commands.check(predicate)
 
-# Vérification sys
+def is_admin():
+    async def predicate(interaction: discord.Interaction):
+        return interaction.user.id in ADMIN_IDS
+    return app_commands.check(predicate)
+
 def is_sys():
     async def predicate(interaction: discord.Interaction):
         return bot.db.is_sys(interaction.user.id)
     return app_commands.check(predicate)
+
+# Commandes de backup
+@bot.tree.command(name="savedb", description="Sauvegarder la base de données (admin uniquement)")
+@is_admin()
+async def savedb(interaction: discord.Interaction):
+    await interaction.response.defer()
+    
+    try:
+        # Exporter les données
+        data = bot.db.export_db()
+        
+        # Convertir en JSON
+        json_data = json.dumps(data, indent=2)
+        
+        # Créer un fichier à envoyer
+        file = discord.File(
+            io.BytesIO(json_data.encode()),
+            filename="security_backup.json"
+        )
+        
+        embed = discord.Embed(
+            title="Backup Database",
+            description="✅ Sauvegarde effectuée avec succès",
+            color=0xFFFFFF
+        )
+        
+        await interaction.followup.send(embed=embed, file=file)
+        
+    except Exception as e:
+        embed = discord.Embed(
+            title="Erreur",
+            description=f"❌ Erreur lors de la sauvegarde : {str(e)}",
+            color=0xFFFFFF
+        )
+        await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="setdb", description="Restaurer la base de données (admin uniquement)")
+@app_commands.describe(fichier="Fichier JSON de backup")
+@is_admin()
+async def setdb(interaction: discord.Interaction, fichier: discord.Attachment):
+    await interaction.response.defer()
+    
+    try:
+        # Vérifier l'extension
+        if not fichier.filename.endswith('.json'):
+            embed = discord.Embed(
+                title="Erreur",
+                description="❌ Le fichier doit être au format JSON",
+                color=0xFFFFFF
+            )
+            await interaction.followup.send(embed=embed)
+            return
+        
+        # Lire le fichier
+        file_content = await fichier.read()
+        data = json.loads(file_content)
+        
+        # Restaurer la base de données
+        bot.db.import_db(data)
+        
+        embed = discord.Embed(
+            title="Restoration Database",
+            description="✅ Base de données restaurée avec succès",
+            color=0xFFFFFF
+        )
+        
+        await interaction.followup.send(embed=embed)
+        
+    except json.JSONDecodeError:
+        embed = discord.Embed(
+            title="Erreur",
+            description="❌ Fichier JSON invalide",
+            color=0xFFFFFF
+        )
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        embed = discord.Embed(
+            title="Erreur",
+            description=f"❌ Erreur lors de la restauration : {str(e)}",
+            color=0xFFFFFF
+        )
+        await interaction.followup.send(embed=embed)
 
 # Commandes de configuration
 @bot.tree.command(name="punition", description="Gerer les punitions pour chaque action")
@@ -418,7 +569,7 @@ async def antirank(interaction: discord.Interaction, status: int):
 @bot.tree.command(name="add-wl", description="Ajouter un utilisateur a la whitelist")
 @app_commands.describe(
     user="L'utilisateur a ajouter",
-    action="Les actions pour lesquelles il est whitelist (separer par des virgules)"
+    action="Les actions pour lesquelles il est whitelist (separer par des virgules: link,ping,deco,channel,rank,bot)"
 )
 @is_owner()
 async def add_wl(interaction: discord.Interaction, user: discord.User, action: str):
@@ -595,13 +746,55 @@ async def on_message(message):
 
 @bot.event
 async def on_member_join(member):
+    # Notification quand un bot est ajouté
+    if member.bot:
+        for owner_id in OWNER_IDS:
+            try:
+                user = await bot.fetch_user(owner_id)
+                await user.send(f"{member.name} a ete ajoute au serveur {member.guild.name}")
+            except:
+                pass
+    
     # Vérification antibot
     if bot.db.get_module_status('antibot') and member.bot:
-        sanction = bot.db.get_punishment('antibot')
-        if sanction == 'kick':
-            await member.kick(reason="Anti-bot")
-        elif sanction == 'ban':
-            await member.ban(reason="Anti-bot")
+        # Attendre un peu pour que les logs d'audit soient créés
+        await asyncio.sleep(1)
+        
+        # Chercher dans les logs d'audit qui a ajouté le bot
+        async for entry in member.guild.audit_logs(
+            limit=5, 
+            action=discord.AuditLogAction.bot_add
+        ):
+            if entry.target.id == member.id:
+                inviter = entry.user
+                
+                # Vérifier si l'inviteur est sys ou whitelist pour bot
+                if not (bot.db.is_sys(inviter.id) or bot.db.is_whitelisted(inviter.id, 'bot')):
+                    # Récupérer la sanction
+                    sanction = bot.db.get_punishment('antibot')
+                    
+                    # Appliquer la sanction à l'inviteur
+                    if sanction == 'kick':
+                        try:
+                            await inviter.kick(reason="Anti-bot: ajout de bot non autorisé")
+                            # Supprimer aussi le bot
+                            await member.kick(reason="Anti-bot")
+                        except:
+                            pass
+                    elif sanction == 'ban':
+                        try:
+                            await inviter.ban(reason="Anti-bot: ajout de bot non autorisé")
+                            await member.ban(reason="Anti-bot")
+                        except:
+                            pass
+                    elif sanction == 'derank':
+                        try:
+                            # Enlever tous les rôles à l'inviteur
+                            await inviter.edit(roles=[], reason="Anti-bot: ajout de bot non autorisé")
+                            await member.kick(reason="Anti-bot")
+                        except:
+                            pass
+                break
 
 @bot.event
 async def on_member_ban(guild, user):
