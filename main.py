@@ -5,9 +5,10 @@ import sqlite3
 import asyncio
 from typing import Optional, List
 import re
+import os
+from config import BOT_TOKEN, OWNER_IDS
 
 # Configuration
-OWNER_IDS = [1399234120214909010, 1425947830463365120]
 DISCORD_INVITE_REGEX = r'(?:https?://)?(?:www\.)?(?:discord\.(?:gg|io|me|com)|discordapp\.com/invite)/[a-zA-Z0-9]+'
 
 # Base de données
@@ -148,6 +149,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
+intents.moderation = True
 
 class SecurityBot(commands.Bot):
     def __init__(self):
@@ -168,41 +170,13 @@ class SecurityBot(commands.Bot):
                 pass
     
     async def on_guild_join(self, guild):
-        # Notification quand un bot est ajouté
+        # Notification quand le bot est ajouté à un serveur
         for owner_id in OWNER_IDS:
             try:
                 user = await self.fetch_user(owner_id)
                 await user.send(f"{guild.name} a ete ajoute au serveur")
             except:
                 pass
-    
-    async def on_member_update(self, before, after):
-        # Vérification des rôles limités
-        if len(before.roles) < len(after.roles):
-            new_roles = [r for r in after.roles if r not in before.roles]
-            for role in new_roles:
-                if self.db.is_limit_role(role.id):
-                    # Vérifier si l'utilisateur est sys + wl
-                    if not (self.db.is_sys(after.id) and self.db.is_whitelisted(after.id)):
-                        await after.remove_roles(role, reason="Role limite")
-    
-    async def check_message_link(self, message):
-        if not message.guild:
-            return False
-        
-        # Vérifier si le module antilink est activé
-        if not self.db.get_module_status('antilink'):
-            return False
-        
-        # Vérifier si l'utilisateur est sys ou whitelist pour link
-        if self.db.is_sys(message.author.id) or self.db.is_whitelisted(message.author.id, 'link'):
-            return False
-        
-        # Chercher les invitations Discord
-        if re.search(DISCORD_INVITE_REGEX, message.content, re.IGNORECASE):
-            return True
-        
-        return False
 
 bot = SecurityBot()
 
@@ -260,7 +234,7 @@ async def antilink(interaction: discord.Interaction, status: int):
     bot.db.set_module_status('antilink', status)
     embed = discord.Embed(
         title="Configuration",
-        description=f"Anti-link : {'activer' if status else 'desactiver'}",
+        description=f"Anti-link : {'activé' if status else 'désactivé'}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -273,7 +247,7 @@ async def antilink(interaction: discord.Interaction, status: int):
         except:
             pass
     
-    # Remise en configuration si désactivé (simulation)
+    # Remise en configuration si désactivé
     if not status:
         await asyncio.sleep(1)
         bot.db.set_module_status('antilink', 1)
@@ -289,7 +263,7 @@ async def antibot(interaction: discord.Interaction, status: int):
     bot.db.set_module_status('antibot', status)
     embed = discord.Embed(
         title="Configuration",
-        description=f"Anti-bot : {'activer' if status else 'desactiver'}",
+        description=f"Anti-bot : {'activé' if status else 'désactivé'}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -316,7 +290,7 @@ async def antiban(interaction: discord.Interaction, status: int):
     bot.db.set_module_status('antiban', status)
     embed = discord.Embed(
         title="Configuration",
-        description=f"Anti-ban : {'activer' if status else 'desactiver'}",
+        description=f"Anti-ban : {'activé' if status else 'désactivé'}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -343,7 +317,7 @@ async def antiping(interaction: discord.Interaction, status: int):
     bot.db.set_module_status('antiping', status)
     embed = discord.Embed(
         title="Configuration",
-        description=f"Anti-ping : {'activer' if status else 'desactiver'}",
+        description=f"Anti-ping : {'activé' if status else 'désactivé'}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -370,7 +344,7 @@ async def antideco(interaction: discord.Interaction, status: int):
     bot.db.set_module_status('antideco', status)
     embed = discord.Embed(
         title="Configuration",
-        description=f"Anti-deco : {'activer' if status else 'desactiver'}",
+        description=f"Anti-deco : {'activé' if status else 'désactivé'}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -397,7 +371,7 @@ async def antichannel(interaction: discord.Interaction, status: int):
     bot.db.set_module_status('antichannel', status)
     embed = discord.Embed(
         title="Configuration",
-        description=f"Anti-channel : {'activer' if status else 'desactiver'}",
+        description=f"Anti-channel : {'activé' if status else 'désactivé'}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -424,7 +398,7 @@ async def antirank(interaction: discord.Interaction, status: int):
     bot.db.set_module_status('antirank', status)
     embed = discord.Embed(
         title="Configuration",
-        description=f"Anti-rank : {'activer' if status else 'desactiver'}",
+        description=f"Anti-rank : {'activé' if status else 'désactivé'}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -451,7 +425,7 @@ async def add_wl(interaction: discord.Interaction, user: discord.User, action: s
     bot.db.add_whitelist(user.id, action)
     embed = discord.Embed(
         title="Whitelist",
-        description=f"{user.mention} ajoute a la whitelist pour: {action}",
+        description=f"{user.mention} ajouté à la whitelist pour: {action}",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -463,7 +437,7 @@ async def del_wl(interaction: discord.Interaction, user: discord.User):
     bot.db.remove_whitelist(user.id)
     embed = discord.Embed(
         title="Whitelist",
-        description=f"{user.mention} enleve de la whitelist",
+        description=f"{user.mention} enlevé de la whitelist",
         color=0xFFFFFF
     )
     await interaction.response.send_message(embed=embed)
@@ -475,7 +449,7 @@ async def list_wl(interaction: discord.Interaction):
     
     if not whitelist:
         embed = discord.Embed(
-            title="Liste des utilisateurs whitelist",
+            title="**Liste des utilisateurs whitelist**",
             description="Aucun utilisateur dans la whitelist",
             color=0xFFFFFF
         )
@@ -598,24 +572,24 @@ async def limit_list(interaction: discord.Interaction):
     
     await interaction.response.send_message(embed=embed)
 
-# Events
+# Events de protection
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
     
     # Vérification antilink
-    if await bot.check_message_link(message):
-        await message.delete()
-        # Appliquer la punition
-        sanction = bot.db.get_punishment('antilink')
-        if sanction == 'warn':
-            # Logique de warn
-            pass
-        elif sanction == 'kick':
-            await message.author.kick(reason="Anti-link")
-        elif sanction == 'ban':
-            await message.author.ban(reason="Anti-link")
+    if bot.db.get_module_status('antilink'):
+        if re.search(DISCORD_INVITE_REGEX, message.content, re.IGNORECASE):
+            # Vérifier si l'utilisateur est sys ou whitelist pour link
+            if not (bot.db.is_sys(message.author.id) or bot.db.is_whitelisted(message.author.id, 'link')):
+                await message.delete()
+                # Appliquer la punition
+                sanction = bot.db.get_punishment('antilink')
+                if sanction == 'kick':
+                    await message.author.kick(reason="Anti-link")
+                elif sanction == 'ban':
+                    await message.author.ban(reason="Anti-link")
     
     await bot.process_commands(message)
 
@@ -623,8 +597,6 @@ async def on_message(message):
 async def on_member_join(member):
     # Vérification antibot
     if bot.db.get_module_status('antibot') and member.bot:
-        # Vérifier si l'ajouteur est sys + wl
-        # Note: Discord ne donne pas l'info de qui a ajouté le bot facilement
         sanction = bot.db.get_punishment('antibot')
         if sanction == 'kick':
             await member.kick(reason="Anti-bot")
@@ -635,11 +607,9 @@ async def on_member_join(member):
 async def on_member_ban(guild, user):
     # Vérification antiban
     if bot.db.get_module_status('antiban'):
-        # Logique pour détecter qui a ban
         async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
             if entry.target.id == user.id:
-                if not (bot.db.is_sys(entry.user.id) and bot.db.is_whitelisted(entry.user.id)):
-                    # Appliquer la punition
+                if not (bot.db.is_sys(entry.user.id) or bot.db.is_whitelisted(entry.user.id, 'ban')):
                     sanction = bot.db.get_punishment('antiban')
                     if sanction == 'kick':
                         await entry.user.kick(reason="Anti-ban")
@@ -650,12 +620,10 @@ async def on_member_ban(guild, user):
 async def on_voice_state_update(member, before, after):
     # Vérification antideco
     if bot.db.get_module_status('antideco'):
-        if before.channel and not after.channel:  # Utilisateur a quitté un salon
-            if not (bot.db.is_sys(member.id) and bot.db.is_whitelisted(member.id)):
+        if before.channel and not after.channel:
+            if not (bot.db.is_sys(member.id) or bot.db.is_whitelisted(member.id, 'deco')):
                 sanction = bot.db.get_punishment('antideco')
-                if sanction == 'warn':
-                    pass
-                elif sanction == 'kick':
+                if sanction == 'kick':
                     await member.kick(reason="Anti-deco")
                 elif sanction == 'ban':
                     await member.ban(reason="Anti-deco")
@@ -665,12 +633,13 @@ async def on_guild_channel_create(channel):
     # Vérification antichannel
     if bot.db.get_module_status('antichannel'):
         async for entry in channel.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_create):
-            if not (bot.db.is_sys(entry.user.id) and bot.db.is_whitelisted(entry.user.id, 'channel')):
+            if not (bot.db.is_sys(entry.user.id) or bot.db.is_whitelisted(entry.user.id, 'channel')):
                 await channel.delete()
                 sanction = bot.db.get_punishment('antichannel')
                 if sanction == 'derank':
-                    # Enlever tous les rôles
-                    pass
+                    member = channel.guild.get_member(entry.user.id)
+                    if member:
+                        await member.edit(roles=[], reason="Anti-channel")
                 elif sanction == 'kick':
                     await entry.user.kick(reason="Anti-channel")
                 elif sanction == 'ban':
@@ -678,44 +647,69 @@ async def on_guild_channel_create(channel):
 
 @bot.event
 async def on_guild_role_create(role):
-    # Vérification antirank
+    # Vérification antirank - création de rôle
     if bot.db.get_module_status('antirank'):
         async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_create):
-            if not (bot.db.is_sys(entry.user.id) and bot.db.is_whitelisted(entry.user.id, 'rank')):
+            if not (bot.db.is_sys(entry.user.id) or bot.db.is_whitelisted(entry.user.id, 'rank')):
                 await role.delete()
                 sanction = bot.db.get_punishment('antirank')
                 if sanction == 'derank':
-                    # Enlever tous les rôles
-                    pass
+                    member = role.guild.get_member(entry.user.id)
+                    if member:
+                        await member.edit(roles=[], reason="Anti-rank")
                 elif sanction == 'kick':
                     await entry.user.kick(reason="Anti-rank")
                 elif sanction == 'ban':
                     await entry.user.ban(reason="Anti-rank")
+
+@bot.event
+async def on_guild_role_delete(role):
+    # Vérification antirank - suppression de rôle
+    if bot.db.get_module_status('antirank'):
+        async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_delete):
+            if not (bot.db.is_sys(entry.user.id) or bot.db.is_whitelisted(entry.user.id, 'rank')):
+                sanction = bot.db.get_punishment('antirank')
+                if sanction == 'derank':
+                    member = role.guild.get_member(entry.user.id)
+                    if member:
+                        await member.edit(roles=[], reason="Anti-rank: suppression rôle")
+                elif sanction == 'kick':
+                    await entry.user.kick(reason="Anti-rank: suppression rôle")
+                elif sanction == 'ban':
+                    await entry.user.ban(reason="Anti-rank: suppression rôle")
 
 @bot.event
 async def on_guild_role_update(before, after):
-    # Vérification antirank
+    # Vérification antirank - modification de rôle
     if bot.db.get_module_status('antirank') and before.permissions != after.permissions:
         async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_update):
-            if not (bot.db.is_sys(entry.user.id) and bot.db.is_whitelisted(entry.user.id, 'rank')):
+            if not (bot.db.is_sys(entry.user.id) or bot.db.is_whitelisted(entry.user.id, 'rank')):
                 await after.edit(permissions=before.permissions)
                 sanction = bot.db.get_punishment('antirank')
                 if sanction == 'derank':
-                    # Enlever tous les rôles
-                    pass
+                    member = before.guild.get_member(entry.user.id)
+                    if member:
+                        await member.edit(roles=[], reason="Anti-rank: modification rôle")
                 elif sanction == 'kick':
-                    await entry.user.kick(reason="Anti-rank")
+                    await entry.user.kick(reason="Anti-rank: modification rôle")
                 elif sanction == 'ban':
-                    await entry.user.ban(reason="Anti-rank")
+                    await entry.user.ban(reason="Anti-rank: modification rôle")
 
 @bot.event
 async def on_member_update(before, after):
-    # Vérification antiping (mute/ban)
+    # Vérification des rôles limités
+    if len(before.roles) < len(after.roles):
+        new_roles = [r for r in after.roles if r not in before.roles]
+        for role in new_roles:
+            if bot.db.is_limit_role(role.id):
+                if not (bot.db.is_sys(after.id) or bot.db.is_whitelisted(after.id)):
+                    await after.remove_roles(role, reason="Role limite")
+    
+    # Vérification antiping (mute)
     if bot.db.get_module_status('antiping'):
         if before.timed_out_until != after.timed_out_until and after.timed_out_until:
             async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_update):
-                if not (bot.db.is_sys(entry.user.id) and bot.db.is_whitelisted(entry.user.id, 'ping')):
-                    # Annuler le mute
+                if not (bot.db.is_sys(entry.user.id) or bot.db.is_whitelisted(entry.user.id, 'ping')):
                     await after.edit(timed_out_until=None)
                     sanction = bot.db.get_punishment('antiping')
                     if sanction == 'kick':
@@ -724,5 +718,5 @@ async def on_member_update(before, after):
                         await entry.user.ban(reason="Anti-ping")
 
 # Lancer le bot
-TOKEN = "VOTRE_TOKEN_ICI"  # Remplacez par votre token
-bot.run(TOKEN)
+if __name__ == "__main__":
+    bot.run(BOT_TOKEN)
