@@ -131,21 +131,69 @@ class Database:
     
     def export_db(self):
         data = {}
-        for t in ['whitelist','sys_users','punishments','modules','limit_roles',
-                  'limit_ping_roles','action_limits','log_channels']:
-            self.c.execute(f'SELECT * FROM {t}')
-            data[t] = self.c.fetchall()
+        
+        self.c.execute('SELECT user_id, actions FROM whitelist')
+        data['whitelist'] = [{'user_id': row[0], 'actions': row[1]} for row in self.c.fetchall()]
+        
+        self.c.execute('SELECT user_id FROM sys_users')
+        data['sys_users'] = [row[0] for row in self.c.fetchall()]
+        
+        self.c.execute('SELECT action, sanction, duree FROM punishments')
+        data['punishments'] = [{'action': row[0], 'sanction': row[1], 'duree': row[2]} for row in self.c.fetchall()]
+        
+        self.c.execute('SELECT module, status FROM modules')
+        data['modules'] = [{'module': row[0], 'status': row[1]} for row in self.c.fetchall()]
+        
+        self.c.execute('SELECT role_id, role_name FROM limit_roles')
+        data['limit_roles'] = [{'role_id': row[0], 'role_name': row[1]} for row in self.c.fetchall()]
+        
+        self.c.execute('SELECT role_id, role_name FROM limit_ping_roles')
+        data['limit_ping_roles'] = [{'role_id': row[0], 'role_name': row[1]} for row in self.c.fetchall()]
+        
+        self.c.execute('SELECT action, nombre, duree FROM action_limits')
+        data['action_limits'] = [{'action': row[0], 'nombre': row[1], 'duree': row[2]} for row in self.c.fetchall()]
+        
+        self.c.execute('SELECT guild_id, log_type, channel_id FROM log_channels')
+        data['log_channels'] = [{'guild_id': row[0], 'log_type': row[1], 'channel_id': row[2]} for row in self.c.fetchall()]
+        
         return data
-    
+
     def import_db(self, data):
-        for t in ['whitelist','sys_users','punishments','modules','limit_roles',
-                  'limit_ping_roles','action_limits','log_channels']:
-            self.c.execute(f'DELETE FROM {t}')
-            for row in data.get(t, []):
-                placeholders = ','.join(['?']*len(row))
-                self.c.execute(f'INSERT INTO {t} VALUES ({placeholders})', row)
+        self.c.execute('DELETE FROM whitelist')
+        self.c.execute('DELETE FROM sys_users')
+        self.c.execute('DELETE FROM punishments')
+        self.c.execute('DELETE FROM modules')
+        self.c.execute('DELETE FROM limit_roles')
+        self.c.execute('DELETE FROM limit_ping_roles')
+        self.c.execute('DELETE FROM action_limits')
+        self.c.execute('DELETE FROM log_channels')
+        
+        for item in data.get('whitelist', []):
+            self.c.execute('INSERT INTO whitelist VALUES (?,?)', (item['user_id'], item['actions']))
+        
+        for uid in data.get('sys_users', []):
+            self.c.execute('INSERT INTO sys_users VALUES (?)', (uid,))
+        
+        for item in data.get('punishments', []):
+            self.c.execute('INSERT INTO punishments VALUES (?,?,?)', (item['action'], item['sanction'], item.get('duree','0')))
+        
+        for item in data.get('modules', []):
+            self.c.execute('INSERT INTO modules VALUES (?,?)', (item['module'], item['status']))
+        
+        for item in data.get('limit_roles', []):
+            self.c.execute('INSERT INTO limit_roles VALUES (?,?)', (item['role_id'], item['role_name']))
+        
+        for item in data.get('limit_ping_roles', []):
+            self.c.execute('INSERT INTO limit_ping_roles VALUES (?,?)', (item['role_id'], item['role_name']))
+        
+        for item in data.get('action_limits', []):
+            self.c.execute('INSERT INTO action_limits VALUES (?,?,?)', (item['action'], item['nombre'], item['duree']))
+        
+        for item in data.get('log_channels', []):
+            self.c.execute('INSERT INTO log_channels VALUES (?,?,?)', (item['guild_id'], item['log_type'], item['channel_id']))
+        
         self.conn.commit()
-    
+
     def add_whitelist(self, uid, acts): self.c.execute('INSERT OR REPLACE INTO whitelist VALUES (?,?)', (uid,acts)); self.conn.commit()
     def remove_whitelist(self, uid): self.c.execute('DELETE FROM whitelist WHERE user_id=?', (uid,)); self.conn.commit()
     def get_whitelist(self): self.c.execute('SELECT user_id,actions FROM whitelist'); return self.c.fetchall()
@@ -197,12 +245,18 @@ class Database:
         self.c.execute('SELECT * FROM guild_backup WHERE guild_id=?', (gid,))
         return self.c.fetchone()
     
-    def set_log_channel(self, gid, cid, typ): self.c.execute('INSERT OR REPLACE INTO log_channels VALUES (?,?,?)', (gid,typ,cid)); self.conn.commit()
+    def set_log_channel(self, gid, cid, typ):
+        self.c.execute('INSERT OR REPLACE INTO log_channels VALUES (?,?,?)', (gid, typ, cid))
+        self.conn.commit()
+    
     def get_log_channel(self, gid, typ):
-        self.c.execute('SELECT channel_id FROM log_channels WHERE guild_id=? AND log_type=?', (gid,typ))
+        self.c.execute('SELECT channel_id FROM log_channels WHERE guild_id=? AND log_type=?', (gid, typ))
         r = self.c.fetchone()
         return r[0] if r else None
-    def remove_log_channel(self, gid, typ): self.c.execute('DELETE FROM log_channels WHERE guild_id=? AND log_type=?', (gid,typ)); self.conn.commit()
+    
+    def remove_log_channel(self, gid, typ):
+        self.c.execute('DELETE FROM log_channels WHERE guild_id=? AND log_type=?', (gid, typ))
+        self.conn.commit()
 
 intents = discord.Intents.default()
 intents.message_content = True
