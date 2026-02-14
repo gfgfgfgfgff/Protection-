@@ -12,7 +12,7 @@ import time
 import aiohttp
 import aiofiles
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import BOT_TOKEN, OWNER_IDS
 
 DISCORD_INVITE_REGEX = r'(?:https?://)?(?:www\.)?(?:discord\.(?:gg|io|me|com)|discordapp\.com/invite)/[a-zA-Z0-9]+'
@@ -413,9 +413,12 @@ async def setdb(i, fichier: discord.Attachment):
 @bot.tree.command(name="set", description="Configurer limites")
 @app_commands.describe(action="Action", nombre="Nombre", duree="Duree (10s,5m,1h)")
 @app_commands.choices(action=[
-    app_commands.Choice(n="antideco", v="antideco"), app_commands.Choice(n="antiban", v="antiban"),
-    app_commands.Choice(n="antirole", v="antirole"), app_commands.Choice(n="antichannel", v="antichannel"),
-    app_commands.Choice(n="antiping", v="antiping"), app_commands.Choice(n="antimodif", v="antimodif")
+    app_commands.Choice(name="antideco", value="antideco"),
+    app_commands.Choice(name="antiban", value="antiban"),
+    app_commands.Choice(name="antirole", value="antirole"),
+    app_commands.Choice(name="antichannel", value="antichannel"),
+    app_commands.Choice(name="antiping", value="antiping"),
+    app_commands.Choice(name="antimodif", value="antimodif")
 ])
 @is_owner()
 async def set_limit(i, action: str, nombre: int, duree: str):
@@ -427,14 +430,20 @@ async def set_limit(i, action: str, nombre: int, duree: str):
 @bot.tree.command(name="punition", description="Configurer punitions")
 @app_commands.describe(action="Action", sanction="Sanction", duree="Duree pour tempmute")
 @app_commands.choices(action=[
-    app_commands.Choice(n="antibot", v="antibot"), app_commands.Choice(n="antilink", v="antilink"),
-    app_commands.Choice(n="antiping", v="antiping"), app_commands.Choice(n="antideco", v="antideco"),
-    app_commands.Choice(n="antichannel", v="antichannel"), app_commands.Choice(n="antirole", v="antirank"),
-    app_commands.Choice(n="antiban", v="antiban"), app_commands.Choice(n="antimodif", v="antimodif")
+    app_commands.Choice(name="antibot", value="antibot"),
+    app_commands.Choice(name="antilink", value="antilink"),
+    app_commands.Choice(name="antiping", value="antiping"),
+    app_commands.Choice(name="antideco", value="antideco"),
+    app_commands.Choice(name="antichannel", value="antichannel"),
+    app_commands.Choice(name="antirole", value="antirank"),
+    app_commands.Choice(name="antiban", value="antiban"),
+    app_commands.Choice(name="antimodif", value="antimodif")
 ])
 @app_commands.choices(sanction=[
-    app_commands.Choice(n="derank", v="derank"), app_commands.Choice(n="tempmute", v="tempmute"),
-    app_commands.Choice(n="kick", v="kick"), app_commands.Choice(n="ban", v="ban")
+    app_commands.Choice(name="derank", value="derank"),
+    app_commands.Choice(name="tempmute", value="tempmute"),
+    app_commands.Choice(name="kick", value="kick"),
+    app_commands.Choice(name="ban", value="ban")
 ])
 @is_owner()
 async def punition(i, action: str, sanction: str, duree: str = "0"):
@@ -443,23 +452,144 @@ async def punition(i, action: str, sanction: str, duree: str = "0"):
     e = discord.Embed(title="Configuration punitions", description=txt, color=0xFFFFFF)
     await i.response.send_message(embed=e)
 
-for mod in ['antilink','antibot','antiban','antiping','antideco','antichannel','antirole','antimodif']:
-    @bot.tree.command(name=mod, description=f"Activer/desactiver {mod}")
-    @app_commands.describe(status="On/Off")
-    @app_commands.choices(status=[app_commands.Choice(n="on",v=1), app_commands.Choice(n="off",v=0)])
-    @is_owner()
-    async def cmd(i, status: int, m=mod):
-        bot.db.set_module_status(m, status)
-        e = discord.Embed(title="Configuration", description=f"{m} : {'active' if status else 'desactive'}", color=0xFFFFFF)
-        await i.response.send_message(embed=e)
-        for o in OWNER_IDS:
-            try:
-                u = await bot.fetch_user(o)
-                await u.send(f"{m} a ete change")
-            except: pass
-        if not status:
-            await asyncio.sleep(1)
-            bot.db.set_module_status(m, 1)
+@bot.tree.command(name="antilink", description="Activer/desactiver antilink")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antilink(i, status: int):
+    bot.db.set_module_status('antilink', status)
+    e = discord.Embed(title="Configuration", description=f"Antilink : {'active' if status else 'desactive'}", color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antilink a ete change")
+        except: pass
+    if not status:
+        await asyncio.sleep(1)
+        bot.db.set_module_status('antilink', 1)
+
+@bot.tree.command(name="antibot", description="Activer/desactiver antibot")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antibot(i, status: int):
+    bot.db.set_module_status('antibot', status)
+    e = discord.Embed(title="Configuration", description=f"Antibot : {'active' if status else 'desactive'}", color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antibot a ete change")
+        except: pass
+    if not status:
+        await asyncio.sleep(1)
+        bot.db.set_module_status('antibot', 1)
+
+@bot.tree.command(name="antiban", description="Activer/desactiver antiban")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antiban(i, status: int):
+    bot.db.set_module_status('antiban', status)
+    e = discord.Embed(title="Configuration", description=f"Antiban : {'active' if status else 'desactive'}", color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antiban a ete change")
+        except: pass
+    if not status:
+        await asyncio.sleep(1)
+        bot.db.set_module_status('antiban', 1)
+
+@bot.tree.command(name="antiping", description="Activer/desactiver antiping")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antiping(i, status: int):
+    bot.db.set_module_status('antiping', status)
+    e = discord.Embed(title="Configuration", description=f"Antiping : {'active' if status else 'desactive'}", color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antiping a ete change")
+        except: pass
+    if not status:
+        await asyncio.sleep(1)
+        bot.db.set_module_status('antiping', 1)
+
+@bot.tree.command(name="antideco", description="Activer/desactiver antideco")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antideco(i, status: int):
+    bot.db.set_module_status('antideco', status)
+    e = discord.Embed(title="Configuration", description=f"Antideco : {'active' if status else 'desactive'}", color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antideco a ete change")
+        except: pass
+    if not status:
+        await asyncio.sleep(1)
+        bot.db.set_module_status('antideco', 1)
+
+@bot.tree.command(name="antichannel", description="Activer/desactiver antichannel")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antichannel(i, status: int):
+    bot.db.set_module_status('antichannel', status)
+    e = discord.Embed(title="Configuration", description=f"Antichannel : {'active' if status else 'desactive'}", color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antichannel a ete change")
+        except: pass
+    if not status:
+        await asyncio.sleep(1)
+        bot.db.set_module_status('antichannel', 1)
+
+@bot.tree.command(name="antirole", description="Activer/desactiver antirole")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antirole(i, status: int):
+    bot.db.set_module_status('antirank', status)
+    e = discord.Embed(title="Configuration", description=f"Antirole : {'active' if status else 'desactive'}", color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antirole a ete change")
+        except: pass
+    if not status:
+        await asyncio.sleep(1)
+        bot.db.set_module_status('antirank', 1)
+
+@bot.tree.command(name="antimodif", description="Activer/desactiver antimodif")
+@app_commands.describe(status="On/Off")
+@app_commands.choices(status=[app_commands.Choice(name="on", value=1), app_commands.Choice(name="off", value=0)])
+@is_owner()
+async def antimodif(i, status: int):
+    bot.db.set_module_status('antimodif', status)
+    if status:
+        bot.db.save_guild_backup(i.guild)
+        await bot.asset_manager.backup_guild_assets(i.guild)
+        desc = "Antimodif active - Serveur sauvegarde"
+    else:
+        desc = "Antimodif desactive"
+    e = discord.Embed(title="Configuration", description=desc, color=0xFFFFFF)
+    await i.response.send_message(embed=e)
+    for o in OWNER_IDS:
+        try:
+            u = await bot.fetch_user(o)
+            await u.send("antimodif a ete change")
+        except: pass
 
 @bot.tree.command(name="add-wl", description="Ajouter whitelist")
 @app_commands.describe(
@@ -584,7 +714,10 @@ async def limit_list(i):
 
 @bot.tree.command(name="limit-ping", description="Configurer pings limites")
 @app_commands.describe(action="Add/Remove", cible="@role/@everyone/@here")
-@app_commands.choices(action=[app_commands.Choice(n="add",v="add"), app_commands.Choice(n="remove",v="remove")])
+@app_commands.choices(action=[
+    app_commands.Choice(name="add", value="add"),
+    app_commands.Choice(name="remove", value="remove")
+])
 @is_owner()
 async def limit_ping(i, action: str, cible: str):
     if cible.lower() in ["@everyone","@here","everyone","here"]:
