@@ -720,81 +720,82 @@ async def antimodif(i, status: int):
             await u.send("antimodif a ete change")
         except: pass
 
-@bot.tree.command(name="add-wl", description="Ajouter un utilisateur à la whitelist")
+@bot.tree.command(name="add-wl", description="Ajouter whitelist")
 @app_commands.describe(
     user="Utilisateur à whitelist",
-    whitelist="Actions autorisées (séparées par des espaces ou virgules)"
+    action="Actions à autoriser (séparées par des virgules)"
 )
-@app_commands.choices(whitelist=[
+@app_commands.choices(action=[
     app_commands.Choice(name="antilink - Liens", value="link"),
     app_commands.Choice(name="antiping - Pings", value="ping"),
-    app_commands.Choice(name="antideco - Décos vocales", value="deco"),
+    app_commands.Choice(name="antideco - Décos", value="deco"),
     app_commands.Choice(name="antichannel - Salons", value="channel"),
     app_commands.Choice(name="antirole - Rôles", value="rank"),
     app_commands.Choice(name="antibot - Bots", value="bot"),
     app_commands.Choice(name="antiban - Bans", value="ban"),
-    app_commands.Choice(name="antimodif - Modif serveur", value="guild"),
-    app_commands.Choice(name="TOUT - Toutes les actions", value="all")
+    app_commands.Choice(name="antimodif - Serveur", value="guild"),
+    app_commands.Choice(name="all - Toutes les actions", value="all")
 ])
 @is_sys_or_owner()
-async def add_wl(i, user: discord.User, whitelist: str):
+async def add_wl(i, user: discord.User, action: str):
     if not i.guild:
         e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
         await i.response.send_message(embed=e, ephemeral=True)
         return
     
-    # Mapping des choix
+    # Mapping des actions
     action_map = {
-        "link": ("liens", "antilink"),
-        "ping": ("pings", "antiping"),
-        "deco": ("décos vocales", "antideco"),
-        "channel": ("salons", "antichannel"),
-        "rank": ("rôles", "antirole"),
-        "bot": ("bots", "antibot"),
-        "ban": ("bans", "antiban"),
-        "guild": ("modif serveur", "antimodif")
+        "link": "liens",
+        "ping": "pings",
+        "deco": "décos",
+        "channel": "salons",
+        "rank": "rôles",
+        "bot": "bots",
+        "ban": "bans",
+        "guild": "serveur"
     }
     
-    # Si "all" est sélectionné
-    if whitelist == "all":
+    # Traitement des actions
+    if action == "all":
         acts = ["link", "ping", "deco", "channel", "rank", "bot", "ban", "guild"]
-        aff = [action_map[a][0] for a in acts]
-        desc_actions = "**TOUTES** les actions"
+        aff = list(action_map.values())
+        desc_actions = "**toutes les actions**"
     else:
-        # Split par virgules ou espaces
-        acts = [a.strip() for a in whitelist.replace(",", " ").split() if a.strip() in action_map]
+        # Split par virgules et nettoie
+        acts = [a.strip() for a in action.split(",") if a.strip() in action_map]
         
         if not acts:
             e = discord.Embed(
                 title="Erreur", 
-                description="Actions invalides. Utilise: link, ping, deco, channel, rank, bot, ban, guild ou all", 
+                description="Actions invalides. Utilise: link,ping,deco,channel,rank,bot,ban,guild ou all", 
                 color=0xFFFFFF
             )
             await i.response.send_message(embed=e, ephemeral=True)
             return
         
-        aff = [action_map[a][0] for a in acts]
+        aff = [action_map[a] for a in acts]
         if len(aff) == 1:
             desc_actions = f"**{aff[0]}**"
         else:
             dernier = aff.pop()
             desc_actions = f"**{', '.join(aff)} et {dernier}**"
     
-    # Sauvegarde en DB
+    # Sauvegarde
     bot.db.add_whitelist(i.guild.id, user.id, ",".join(acts))
     
-    # Création de l'embed
+    # Embed
     e = discord.Embed(
-        title="Whitelist ajoutée", 
-        description=f"{user.mention} est maintenant whitelist pour :\n{desc_actions}\n\n**Serveur:** {i.guild.name}", 
-        color=0x00FF00
+        title="Whitelist",
+        description=f"{user.mention} est whitelist pour : {desc_actions}",
+        color=0xFFFFFF
     )
-    e.set_footer(text=f"ID: {user.id}")
     
     await i.response.send_message(embed=e)
-
-@bot.tree.command(name="del-wl", description="Enlever whitelist")
-@app_commands.describe(user="Utilisateur")
+    
+@bot.tree.command(name="del-wl", description="Retirer un utilisateur de la whitelist")
+@app_commands.describe(
+    user="Utilisateur à retirer de la whitelist"
+)
 @is_sys_or_owner()
 async def del_wl(i, user: discord.User):
     if not i.guild:
@@ -802,11 +803,29 @@ async def del_wl(i, user: discord.User):
         await i.response.send_message(embed=e, ephemeral=True)
         return
     
+    # Vérifie si l'utilisateur est dans la whitelist
+    if not bot.db.is_whitelisted(i.guild.id, user.id):
+        e = discord.Embed(
+            title="Whitelist",
+            description=f"{user.mention} n'est pas dans la whitelist.",
+            color=0xFFFFFF
+        )
+        await i.response.send_message(embed=e)
+        return
+    
+    # Supprime de la whitelist
     bot.db.remove_whitelist(i.guild.id, user.id)
-    e = discord.Embed(title="Whitelist", description=f"{user.mention} enleve de la whitelist de ce serveur", color=0xFFFFFF)
+    
+    # Embed de confirmation
+    e = discord.Embed(
+        title="Whitelist",
+        description=f"{user.mention} a été retiré de la whitelist.",
+        color=0xFFFFFF
+    )
+    
     await i.response.send_message(embed=e)
 
-@bot.tree.command(name="list-wl", description="Liste whitelist")
+@bot.tree.command(name="list-wl", description="Liste des utilisateurs whitelist")
 @is_sys_or_owner()
 async def list_wl(i):
     if not i.guild:
@@ -815,15 +834,50 @@ async def list_wl(i):
         return
     
     wl = bot.db.get_whitelist(i.guild.id)
+    
     if not wl:
-        e = discord.Embed(title="**Liste whitelist**", description="Aucun utilisateur sur ce serveur", color=0xFFFFFF)
-    else:
-        desc = ""
-        for n,(uid,acts) in enumerate(wl,1):
-            u = bot.get_user(uid) or f"Inconnu({uid})"
-            desc += f"``{n}` {u} - {acts}`\n`{uid}`\n---\n"
-        e = discord.Embed(title="**Liste whitelist**", description=desc, color=0xFFFFFF)
-        e.set_footer(text=f"Total: {len(wl)} sur ce serveur")
+        e = discord.Embed(
+            title="Liste Whitelist",
+            description="Aucun utilisateur whitelist.",
+            color=0xFFFFFF
+        )
+        await i.response.send_message(embed=e)
+        return
+    
+    # Construction de la liste
+    description = ""
+    for uid, actions in wl:
+        user = bot.get_user(uid)
+        mention = user.mention if user else f"`{uid}`"
+        
+        # Formate les actions
+        action_list = actions.split(",")
+        action_names = []
+        for a in action_list:
+            if a == "link": action_names.append("liens")
+            elif a == "ping": action_names.append("pings")
+            elif a == "deco": action_names.append("décos")
+            elif a == "channel": action_names.append("salons")
+            elif a == "rank": action_names.append("rôles")
+            elif a == "bot": action_names.append("bots")
+            elif a == "ban": action_names.append("bans")
+            elif a == "guild": action_names.append("serveur")
+        
+        if len(action_names) == 1:
+            actions_str = f"**{action_names[0]}**"
+        else:
+            dernier = action_names.pop()
+            actions_str = f"**{', '.join(action_names)} et {dernier}**"
+        
+        description += f"{mention} → {actions_str}\n"
+    
+    e = discord.Embed(
+        title="Liste Whitelist",
+        description=description,
+        color=0xFFFFFF
+    )
+    e.set_footer(text=f"Total: {len(wl)} utilisateur(s)")
+    
     await i.response.send_message(embed=e)
 
 @bot.tree.command(name="sys", description="Ajouter sys")
