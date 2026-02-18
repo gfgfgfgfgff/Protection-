@@ -1,5 +1,8 @@
 # config.py
-BOT_TOKEN = "ton_token_ici"
-OWNER_IDS = [497126437258788864, 123456789012345678]  # Ajoute toutes les IDs que tu veux
+import os
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Récupère la variable Railway
+OWNER_IDS = [497126437258788864]
+
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN non defini")
+    raise ValueError("BOT_TOKEN non défini - Vérifie les variables Railway")
