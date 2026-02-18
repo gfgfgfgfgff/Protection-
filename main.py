@@ -82,10 +82,15 @@ class Database:
         self.init_db()
     
     def init_db(self):
+        # Tables avec guild_id
         self.c.execute('''CREATE TABLE IF NOT EXISTS whitelist
-                         (user_id INTEGER PRIMARY KEY, actions TEXT)''')
+                         (guild_id INTEGER, user_id INTEGER, actions TEXT,
+                          PRIMARY KEY (guild_id, user_id))''')
+        
         self.c.execute('''CREATE TABLE IF NOT EXISTS sys_users
-                         (user_id INTEGER PRIMARY KEY)''')
+                         (guild_id INTEGER, user_id INTEGER,
+                          PRIMARY KEY (guild_id, user_id))''')
+        
         self.c.execute('''CREATE TABLE IF NOT EXISTS punishments
                          (action TEXT PRIMARY KEY, sanction TEXT, duree TEXT)''')
         self.c.execute('''CREATE TABLE IF NOT EXISTS modules
@@ -132,11 +137,11 @@ class Database:
     def export_db(self):
         data = {}
         
-        self.c.execute('SELECT user_id, actions FROM whitelist')
-        data['whitelist'] = [{'user_id': row[0], 'actions': row[1]} for row in self.c.fetchall()]
+        self.c.execute('SELECT guild_id, user_id, actions FROM whitelist')
+        data['whitelist'] = [{'guild_id': row[0], 'user_id': row[1], 'actions': row[2]} for row in self.c.fetchall()]
         
-        self.c.execute('SELECT user_id FROM sys_users')
-        data['sys_users'] = [row[0] for row in self.c.fetchall()]
+        self.c.execute('SELECT guild_id, user_id FROM sys_users')
+        data['sys_users'] = [{'guild_id': row[0], 'user_id': row[1]} for row in self.c.fetchall()]
         
         self.c.execute('SELECT action, sanction, duree FROM punishments')
         data['punishments'] = [{'action': row[0], 'sanction': row[1], 'duree': row[2]} for row in self.c.fetchall()]
@@ -169,13 +174,16 @@ class Database:
         self.c.execute('DELETE FROM log_channels')
         
         for item in data.get('whitelist', []):
-            self.c.execute('INSERT INTO whitelist VALUES (?,?)', (item['user_id'], item['actions']))
+            self.c.execute('INSERT INTO whitelist VALUES (?,?,?)', 
+                          (item['guild_id'], item['user_id'], item['actions']))
         
-        for uid in data.get('sys_users', []):
-            self.c.execute('INSERT INTO sys_users VALUES (?)', (uid,))
+        for item in data.get('sys_users', []):
+            self.c.execute('INSERT INTO sys_users VALUES (?,?)', 
+                          (item['guild_id'], item['user_id']))
         
         for item in data.get('punishments', []):
-            self.c.execute('INSERT INTO punishments VALUES (?,?,?)', (item['action'], item['sanction'], item.get('duree','0')))
+            self.c.execute('INSERT INTO punishments VALUES (?,?,?)', 
+                          (item['action'], item['sanction'], item.get('duree','0')))
         
         for item in data.get('modules', []):
             self.c.execute('INSERT INTO modules VALUES (?,?)', (item['module'], item['status']))
@@ -193,47 +201,107 @@ class Database:
             self.c.execute('INSERT INTO log_channels VALUES (?,?,?)', (item['guild_id'], item['log_type'], item['channel_id']))
         
         self.conn.commit()
-
-    def add_whitelist(self, uid, acts): self.c.execute('INSERT OR REPLACE INTO whitelist VALUES (?,?)', (uid,acts)); self.conn.commit()
-    def remove_whitelist(self, uid): self.c.execute('DELETE FROM whitelist WHERE user_id=?', (uid,)); self.conn.commit()
-    def get_whitelist(self): self.c.execute('SELECT user_id,actions FROM whitelist'); return self.c.fetchall()
-    def is_whitelisted(self, uid, act=None):
-        self.c.execute('SELECT actions FROM whitelist WHERE user_id=?', (uid,))
+    
+    # Whitelist par serveur
+    def add_whitelist(self, guild_id, user_id, actions):
+        self.c.execute('INSERT OR REPLACE INTO whitelist VALUES (?,?,?)', (guild_id, user_id, actions))
+        self.conn.commit()
+    
+    def remove_whitelist(self, guild_id, user_id):
+        self.c.execute('DELETE FROM whitelist WHERE guild_id=? AND user_id=?', (guild_id, user_id))
+        self.conn.commit()
+    
+    def get_whitelist(self, guild_id):
+        self.c.execute('SELECT user_id, actions FROM whitelist WHERE guild_id=?', (guild_id,))
+        return self.c.fetchall()
+    
+    def is_whitelisted(self, guild_id, user_id, act=None):
+        self.c.execute('SELECT actions FROM whitelist WHERE guild_id=? AND user_id=?', (guild_id, user_id))
         r = self.c.fetchone()
         if not r: return False
-        return act in r[0].split(',') if act else True
+        if not act: return True
+        return act in r[0].split(',')
     
-    def add_sys(self, uid): self.c.execute('INSERT OR IGNORE INTO sys_users VALUES (?)', (uid,)); self.conn.commit()
-    def remove_sys(self, uid): self.c.execute('DELETE FROM sys_users WHERE user_id=?', (uid,)); self.conn.commit()
-    def get_sys(self): self.c.execute('SELECT user_id FROM sys_users'); return self.c.fetchall()
-    def is_sys(self, uid): self.c.execute('SELECT 1 FROM sys_users WHERE user_id=?', (uid,)); return self.c.fetchone() is not None
+    # Sys par serveur
+    def add_sys(self, guild_id, user_id):
+        self.c.execute('INSERT OR IGNORE INTO sys_users VALUES (?,?)', (guild_id, user_id))
+        self.conn.commit()
     
-    def set_punishment(self, a, s, d='0'): self.c.execute('INSERT OR REPLACE INTO punishments VALUES (?,?,?)', (a,s,d)); self.conn.commit()
+    def remove_sys(self, guild_id, user_id):
+        self.c.execute('DELETE FROM sys_users WHERE guild_id=? AND user_id=?', (guild_id, user_id))
+        self.conn.commit()
+    
+    def get_sys(self, guild_id):
+        self.c.execute('SELECT user_id FROM sys_users WHERE guild_id=?', (guild_id,))
+        return self.c.fetchall()
+    
+    def is_sys(self, guild_id, user_id):
+        self.c.execute('SELECT 1 FROM sys_users WHERE guild_id=? AND user_id=?', (guild_id, user_id))
+        return self.c.fetchone() is not None
+    
+    # Punishments (globaux)
+    def set_punishment(self, a, s, d='0'):
+        self.c.execute('INSERT OR REPLACE INTO punishments VALUES (?,?,?)', (a,s,d))
+        self.conn.commit()
+    
     def get_punishment(self, a):
         self.c.execute('SELECT sanction,duree FROM punishments WHERE action=?', (a,))
         return self.c.fetchone() or (None,'0')
     
-    def set_module_status(self, m, s): self.c.execute('INSERT OR REPLACE INTO modules VALUES (?,?)', (m,s)); self.conn.commit()
+    # Modules (globaux)
+    def set_module_status(self, m, s):
+        self.c.execute('INSERT OR REPLACE INTO modules VALUES (?,?)', (m,s))
+        self.conn.commit()
+    
     def get_module_status(self, m):
         self.c.execute('SELECT status FROM modules WHERE module=?', (m,))
         r = self.c.fetchone()
         return r[0] if r else 0
     
-    def add_limit_role(self, rid, name): self.c.execute('INSERT OR IGNORE INTO limit_roles VALUES (?,?)', (rid,name)); self.conn.commit()
-    def remove_limit_role(self, rid): self.c.execute('DELETE FROM limit_roles WHERE role_id=?', (rid,)); self.conn.commit()
-    def get_limit_roles(self): self.c.execute('SELECT role_id,role_name FROM limit_roles'); return self.c.fetchall()
-    def is_limit_role(self, rid): self.c.execute('SELECT 1 FROM limit_roles WHERE role_id=?', (rid,)); return self.c.fetchone() is not None
+    # Limit roles (globaux)
+    def add_limit_role(self, rid, name):
+        self.c.execute('INSERT OR IGNORE INTO limit_roles VALUES (?,?)', (rid,name))
+        self.conn.commit()
     
-    def add_limit_ping_role(self, rid, name): self.c.execute('INSERT OR IGNORE INTO limit_ping_roles VALUES (?,?)', (rid,name)); self.conn.commit()
-    def remove_limit_ping_role(self, rid): self.c.execute('DELETE FROM limit_ping_roles WHERE role_id=?', (rid,)); self.conn.commit()
-    def get_limit_ping_roles(self): self.c.execute('SELECT role_id,role_name FROM limit_ping_roles'); return self.c.fetchall()
-    def is_limit_ping_role(self, rid): self.c.execute('SELECT 1 FROM limit_ping_roles WHERE role_id=?', (rid,)); return self.c.fetchone() is not None
+    def remove_limit_role(self, rid):
+        self.c.execute('DELETE FROM limit_roles WHERE role_id=?', (rid,))
+        self.conn.commit()
     
-    def set_action_limit(self, a, n, d): self.c.execute('INSERT OR REPLACE INTO action_limits VALUES (?,?,?)', (a,n,d)); self.conn.commit()
+    def get_limit_roles(self):
+        self.c.execute('SELECT role_id,role_name FROM limit_roles')
+        return self.c.fetchall()
+    
+    def is_limit_role(self, rid):
+        self.c.execute('SELECT 1 FROM limit_roles WHERE role_id=?', (rid,))
+        return self.c.fetchone() is not None
+    
+    # Limit ping roles (globaux)
+    def add_limit_ping_role(self, rid, name):
+        self.c.execute('INSERT OR IGNORE INTO limit_ping_roles VALUES (?,?)', (rid,name))
+        self.conn.commit()
+    
+    def remove_limit_ping_role(self, rid):
+        self.c.execute('DELETE FROM limit_ping_roles WHERE role_id=?', (rid,))
+        self.conn.commit()
+    
+    def get_limit_ping_roles(self):
+        self.c.execute('SELECT role_id,role_name FROM limit_ping_roles')
+        return self.c.fetchall()
+    
+    def is_limit_ping_role(self, rid):
+        self.c.execute('SELECT 1 FROM limit_ping_roles WHERE role_id=?', (rid,))
+        return self.c.fetchone() is not None
+    
+    # Action limits (globaux)
+    def set_action_limit(self, a, n, d):
+        self.c.execute('INSERT OR REPLACE INTO action_limits VALUES (?,?,?)', (a,n,d))
+        self.conn.commit()
+    
     def get_action_limit(self, a):
         self.c.execute('SELECT nombre,duree FROM action_limits WHERE action=?', (a,))
         return self.c.fetchone() or (None,None)
     
+    # Guild backup (par serveur)
     def save_guild_backup(self, g):
         self.c.execute('''INSERT OR REPLACE INTO guild_backup VALUES (?,?,?,?,?,?,?)''',
                       (g.id, g.name, str(g.icon.url) if g.icon else None,
@@ -245,6 +313,7 @@ class Database:
         self.c.execute('SELECT * FROM guild_backup WHERE guild_id=?', (gid,))
         return self.c.fetchone()
     
+    # Log channels (par serveur)
     def set_log_channel(self, gid, cid, typ):
         self.c.execute('INSERT OR REPLACE INTO log_channels VALUES (?,?,?)', (gid, typ, cid))
         self.conn.commit()
@@ -311,6 +380,7 @@ class SecurityBot(commands.Bot):
 
 bot = SecurityBot()
 
+# Permissions checks
 def is_owner():
     async def p(i):
         if i.user.id in OWNER_IDS: return True
@@ -321,7 +391,8 @@ def is_owner():
 
 def is_sys():
     async def p(i):
-        if bot.db.is_sys(i.user.id): return True
+        if i.user.id in OWNER_IDS: return True
+        if i.guild and bot.db.is_sys(i.guild.id, i.user.id): return True
         e = discord.Embed(title="Permission refusee", description="Tu n'as pas les permissions necessaires", color=0xFFFFFF)
         await i.response.send_message(embed=e, ephemeral=True)
         return False
@@ -329,7 +400,8 @@ def is_sys():
 
 def is_sys_or_owner():
     async def p(i):
-        if i.user.id in OWNER_IDS or bot.db.is_sys(i.user.id): return True
+        if i.user.id in OWNER_IDS: return True
+        if i.guild and bot.db.is_sys(i.guild.id, i.user.id): return True
         e = discord.Embed(title="Permission refusee", description="Tu n'as pas les permissions necessaires", color=0xFFFFFF)
         await i.response.send_message(embed=e, ephemeral=True)
         return False
@@ -337,7 +409,9 @@ def is_sys_or_owner():
 
 def is_sys_or_wl():
     async def p(i):
-        if i.user.id in OWNER_IDS or bot.db.is_sys(i.user.id) or bot.db.is_whitelisted(i.user.id): return True
+        if i.user.id in OWNER_IDS: return True
+        if not i.guild: return False
+        if bot.db.is_sys(i.guild.id, i.user.id) or bot.db.is_whitelisted(i.guild.id, i.user.id): return True
         e = discord.Embed(title="Permission refusee", description="Tu n'as pas les permissions necessaires", color=0xFFFFFF)
         await i.response.send_message(embed=e, ephemeral=True)
         return False
@@ -346,7 +420,8 @@ def is_sys_or_wl():
 def is_sys_and_wl():
     async def p(i):
         if i.user.id in OWNER_IDS: return True
-        if bot.db.is_sys(i.user.id) and bot.db.is_whitelisted(i.user.id): return True
+        if not i.guild: return False
+        if bot.db.is_sys(i.guild.id, i.user.id) and bot.db.is_whitelisted(i.guild.id, i.user.id): return True
         e = discord.Embed(title="Permission refusee", description="Tu n'as pas les permissions necessaires (sys + wl requis)", color=0xFFFFFF)
         await i.response.send_message(embed=e, ephemeral=True)
         return False
@@ -658,6 +733,11 @@ async def add_wl(i, user: discord.User,
     rank: Optional[bool]=False, bot: Optional[bool]=False,
     ban: Optional[bool]=False, guild: Optional[bool]=False
 ):
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
     acts = []
     aff = []
     if link: acts.append("link"); aff.append("liens")
@@ -674,11 +754,11 @@ async def add_wl(i, user: discord.User,
         await i.response.send_message(embed=e, ephemeral=True)
         return
     
-    bot.db.add_whitelist(user.id, ",".join(acts))
-    if len(aff)==1: desc = f"{user.mention} ajoute pour: **{aff[0]}**"
+    bot.db.add_whitelist(i.guild.id, user.id, ",".join(acts))
+    if len(aff)==1: desc = f"{user.mention} ajoute pour: **{aff[0]}** (sur ce serveur)"
     else:
         dernier = aff.pop()
-        desc = f"{user.mention} ajoute pour: **{', '.join(aff)} et {dernier}**"
+        desc = f"{user.mention} ajoute pour: **{', '.join(aff)} et {dernier}** (sur ce serveur)"
     
     e = discord.Embed(title="Whitelist", description=desc, color=0xFFFFFF)
     await i.response.send_message(embed=e)
@@ -687,52 +767,79 @@ async def add_wl(i, user: discord.User,
 @app_commands.describe(user="Utilisateur")
 @is_sys_or_owner()
 async def del_wl(i, user: discord.User):
-    bot.db.remove_whitelist(user.id)
-    e = discord.Embed(title="Whitelist", description=f"{user.mention} enleve", color=0xFFFFFF)
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
+    bot.db.remove_whitelist(i.guild.id, user.id)
+    e = discord.Embed(title="Whitelist", description=f"{user.mention} enleve de la whitelist de ce serveur", color=0xFFFFFF)
     await i.response.send_message(embed=e)
 
 @bot.tree.command(name="list-wl", description="Liste whitelist")
 @is_sys_or_owner()
 async def list_wl(i):
-    wl = bot.db.get_whitelist()
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
+    wl = bot.db.get_whitelist(i.guild.id)
     if not wl:
-        e = discord.Embed(title="**Liste whitelist**", description="Aucun utilisateur", color=0xFFFFFF)
+        e = discord.Embed(title="**Liste whitelist**", description="Aucun utilisateur sur ce serveur", color=0xFFFFFF)
     else:
         desc = ""
         for n,(uid,acts) in enumerate(wl,1):
             u = bot.get_user(uid) or f"Inconnu({uid})"
             desc += f"``{n}` {u} - {acts}`\n`{uid}`\n---\n"
         e = discord.Embed(title="**Liste whitelist**", description=desc, color=0xFFFFFF)
+        e.set_footer(text=f"Total: {len(wl)} sur ce serveur")
     await i.response.send_message(embed=e)
 
 @bot.tree.command(name="sys", description="Ajouter sys")
 @app_commands.describe(user="Utilisateur")
 @is_owner()
 async def sys_add(i, user: discord.User):
-    bot.db.add_sys(user.id)
-    e = discord.Embed(title="Grade sys", description=f"{user.mention} a maintenant le grade sys", color=0xFFFFFF)
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
+    bot.db.add_sys(i.guild.id, user.id)
+    e = discord.Embed(title="Grade sys", description=f"{user.mention} a maintenant le grade sys sur ce serveur", color=0xFFFFFF)
     await i.response.send_message(embed=e)
 
 @bot.tree.command(name="unsys", description="Enlever sys")
 @app_commands.describe(user="Utilisateur")
 @is_owner()
 async def sys_remove(i, user: discord.User):
-    bot.db.remove_sys(user.id)
-    e = discord.Embed(title="Grade sys", description=f"{user.mention} n'a plus le grade sys", color=0xFFFFFF)
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
+    bot.db.remove_sys(i.guild.id, user.id)
+    e = discord.Embed(title="Grade sys", description=f"{user.mention} n'a plus le grade sys sur ce serveur", color=0xFFFFFF)
     await i.response.send_message(embed=e)
 
 @bot.tree.command(name="list-sys", description="Liste sys")
 @is_sys_or_owner()
 async def list_sys(i):
-    sys = bot.db.get_sys()
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
+    sys = bot.db.get_sys(i.guild.id)
     if not sys:
-        e = discord.Embed(title="**Liste sys**", description="Aucun utilisateur", color=0xFFFFFF)
+        e = discord.Embed(title="**Liste sys**", description="Aucun utilisateur sur ce serveur", color=0xFFFFFF)
     else:
         desc = ""
         for n,(uid,) in enumerate(sys,1):
             u = bot.get_user(uid) or f"Inconnu({uid})"
             desc += f"``{n}` {u}`\n`{uid}`\n---\n"
         e = discord.Embed(title="**Liste sys**", description=desc, color=0xFFFFFF)
+        e.set_footer(text=f"Total: {len(sys)} sur ce serveur")
     await i.response.send_message(embed=e)
 
 @bot.tree.command(name="add-limitrole", description="Ajouter role limite")
@@ -754,6 +861,11 @@ async def del_limitrole(i, role: discord.Role):
 @bot.tree.command(name="limit-list", description="Liste roles limites")
 @is_sys_or_wl()
 async def limit_list(i):
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
     roles = bot.db.get_limit_roles()
     if not roles:
         e = discord.Embed(title="**Liste roles limites**", description="Aucun role", color=0xFFFFFF)
@@ -800,6 +912,11 @@ async def limit_ping(i, action: str, cible: str):
 @bot.tree.command(name="list-limit-ping", description="Liste pings limites")
 @is_sys_or_wl()
 async def list_limit_ping(i):
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
     roles = bot.db.get_limit_ping_roles()
     if not roles:
         e = discord.Embed(title="**Liste pings limites**", description="Aucune configuration", color=0xFFFFFF)
@@ -819,6 +936,11 @@ async def list_limit_ping(i):
 @app_commands.describe(salon="Salon (vide pour desactiver)")
 @is_owner()
 async def setlogs(i, salon: Optional[discord.TextChannel] = None):
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
     if salon:
         bot.db.set_log_channel(i.guild.id, salon.id, "moderation")
         desc = f"Logs configures dans {salon.mention}"
@@ -831,6 +953,11 @@ async def setlogs(i, salon: Optional[discord.TextChannel] = None):
 @bot.tree.command(name="logs-status", description="Status logs publics")
 @is_owner()
 async def logs_status(i):
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
     cid = bot.db.get_log_channel(i.guild.id, "moderation")
     if not cid:
         e = discord.Embed(title="Logs publics", description="Aucun salon configure", color=0xFFFFFF)
@@ -843,6 +970,11 @@ async def logs_status(i):
 @app_commands.describe(salon="Salon (vide pour desactiver)")
 @is_owner()
 async def logsown(i, salon: Optional[discord.TextChannel] = None):
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
     if salon:
         bot.db.set_log_channel(i.guild.id, salon.id, "owner_logs")
         desc = f"Logs prives configures dans {salon.mention}"
@@ -855,6 +987,11 @@ async def logsown(i, salon: Optional[discord.TextChannel] = None):
 @bot.tree.command(name="logsown-status", description="Status logs prives")
 @is_owner()
 async def logsown_status(i):
+    if not i.guild:
+        e = discord.Embed(title="Erreur", description="Cette commande doit être utilisée dans un serveur", color=0xFFFFFF)
+        await i.response.send_message(embed=e, ephemeral=True)
+        return
+    
     cid = bot.db.get_log_channel(i.guild.id, "owner_logs")
     if not cid:
         e = discord.Embed(title="Logs prives", description="Aucun salon configure", color=0xFFFFFF)
@@ -865,11 +1002,11 @@ async def logsown_status(i):
 
 @bot.event
 async def on_message(msg):
-    if msg.author.bot: return
+    if msg.author.bot or not msg.guild: return
     
     if bot.db.get_module_status('antilink'):
         if re.search(DISCORD_INVITE_REGEX, msg.content, re.IGNORECASE):
-            if not (bot.db.is_sys(msg.author.id) or bot.db.is_whitelisted(msg.author.id, 'link')):
+            if not (bot.db.is_sys(msg.guild.id, msg.author.id) or bot.db.is_whitelisted(msg.guild.id, msg.author.id, 'link')):
                 await msg.delete()
                 await msg.channel.send(f"{msg.author.mention} vous n'etes pas autorise a envoyer des liens")
                 s,_ = bot.db.get_punishment('antilink')
@@ -881,7 +1018,7 @@ async def on_message(msg):
                 await send_punishment_log(bot, msg.guild.id, "moderation", "envoye un lien", msg.author, s, suc=suc)
     
     if bot.db.get_module_status('antiping'):
-        can = bot.db.is_sys(msg.author.id) or bot.db.is_whitelisted(msg.author.id, 'ping')
+        can = bot.db.is_sys(msg.guild.id, msg.author.id) or bot.db.is_whitelisted(msg.guild.id, msg.author.id, 'ping')
         if msg.mention_everyone:
             if bot.db.is_limit_ping_role("special_everyone") and not can:
                 await msg.delete()
@@ -913,6 +1050,8 @@ async def on_message(msg):
 
 @bot.event
 async def on_member_join(m):
+    if not m.guild: return
+    
     if m.bot:
         for o in OWNER_IDS:
             try:
@@ -925,7 +1064,7 @@ async def on_member_join(m):
             async for e in m.guild.audit_logs(limit=5, action=discord.AuditLogAction.bot_add):
                 if e.target.id == m.id:
                     inv = e.user
-                    if not (bot.db.is_sys(inv.id) or bot.db.is_whitelisted(inv.id, 'bot')):
+                    if not (bot.db.is_sys(m.guild.id, inv.id) or bot.db.is_whitelisted(m.guild.id, inv.id, 'bot')):
                         s,_ = bot.db.get_punishment('antibot')
                         suc = True
                         try:
@@ -944,10 +1083,12 @@ async def on_member_join(m):
 
 @bot.event
 async def on_member_ban(g, u):
+    if not g: return
+    
     if bot.db.get_module_status('antiban'):
         async for e in g.audit_logs(limit=1, action=discord.AuditLogAction.ban):
             if e.target.id == u.id:
-                if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'ban')):
+                if not (bot.db.is_sys(g.id, e.user.id) or bot.db.is_whitelisted(g.id, e.user.id, 'ban')):
                     bot.tracker.add_action(e.user.id, 'ban')
                     n,d = bot.db.get_action_limit('antiban')
                     if n and d:
@@ -961,6 +1102,8 @@ async def on_member_ban(g, u):
 
 @bot.event
 async def on_voice_state_update(m, b, a):
+    if not m.guild: return
+    
     if bot.db.get_module_status('antideco'):
         if (b.channel and not a.channel) or (b.channel and a.channel and b.channel != a.channel):
             async for e in m.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_disconnect):
@@ -976,7 +1119,7 @@ async def on_voice_state_update(m, b, a):
                         break
                 else: return
             
-            if not (bot.db.is_sys(mod.id) or bot.db.is_whitelisted(mod.id, 'deco')):
+            if not (bot.db.is_sys(m.guild.id, mod.id) or bot.db.is_whitelisted(m.guild.id, mod.id, 'deco')):
                 bot.tracker.add_action(mod.id, 'deco')
                 n,d = bot.db.get_action_limit('antideco')
                 if n and d:
@@ -989,9 +1132,11 @@ async def on_voice_state_update(m, b, a):
 
 @bot.event
 async def on_guild_channel_create(c):
+    if not c.guild: return
+    
     if bot.db.get_module_status('antichannel'):
         async for e in c.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_create):
-            if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'channel')):
+            if not (bot.db.is_sys(c.guild.id, e.user.id) or bot.db.is_whitelisted(c.guild.id, e.user.id, 'channel')):
                 bot.tracker.add_action(e.user.id, 'channel_create')
                 n,d = bot.db.get_action_limit('antichannel')
                 if n and d:
@@ -1007,9 +1152,11 @@ async def on_guild_channel_create(c):
 
 @bot.event
 async def on_guild_channel_delete(c):
+    if not c.guild: return
+    
     if bot.db.get_module_status('antichannel'):
         async for e in c.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_delete):
-            if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'channel')):
+            if not (bot.db.is_sys(c.guild.id, e.user.id) or bot.db.is_whitelisted(c.guild.id, e.user.id, 'channel')):
                 bot.tracker.add_action(e.user.id, 'channel_delete')
                 n,d = bot.db.get_action_limit('antichannel')
                 if n and d:
@@ -1023,10 +1170,12 @@ async def on_guild_channel_delete(c):
 
 @bot.event
 async def on_guild_channel_update(b,a):
+    if not b.guild: return
+    
     if bot.db.get_module_status('antichannel'):
         if b.name!=a.name or b.category!=a.category or b.overwrites!=a.overwrites:
             async for e in b.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
-                if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'channel')):
+                if not (bot.db.is_sys(b.guild.id, e.user.id) or bot.db.is_whitelisted(b.guild.id, e.user.id, 'channel')):
                     bot.tracker.add_action(e.user.id, 'channel_update')
                     n,d = bot.db.get_action_limit('antichannel')
                     if n and d:
@@ -1042,9 +1191,11 @@ async def on_guild_channel_update(b,a):
 
 @bot.event
 async def on_guild_role_create(r):
+    if not r.guild: return
+    
     if bot.db.get_module_status('antirank'):
         async for e in r.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_create):
-            if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'rank')):
+            if not (bot.db.is_sys(r.guild.id, e.user.id) or bot.db.is_whitelisted(r.guild.id, e.user.id, 'rank')):
                 bot.tracker.add_action(e.user.id, 'role_create')
                 n,d = bot.db.get_action_limit('antirole')
                 if n and d:
@@ -1060,9 +1211,11 @@ async def on_guild_role_create(r):
 
 @bot.event
 async def on_guild_role_delete(r):
+    if not r.guild: return
+    
     if bot.db.get_module_status('antirank'):
         async for e in r.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_delete):
-            if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'rank')):
+            if not (bot.db.is_sys(r.guild.id, e.user.id) or bot.db.is_whitelisted(r.guild.id, e.user.id, 'rank')):
                 bot.tracker.add_action(e.user.id, 'role_delete')
                 n,d = bot.db.get_action_limit('antirole')
                 if n and d:
@@ -1076,9 +1229,11 @@ async def on_guild_role_delete(r):
 
 @bot.event
 async def on_guild_role_update(b,a):
+    if not b.guild: return
+    
     if bot.db.get_module_status('antirank') and b.permissions != a.permissions:
         async for e in b.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_update):
-            if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'rank')):
+            if not (bot.db.is_sys(b.guild.id, e.user.id) or bot.db.is_whitelisted(b.guild.id, e.user.id, 'rank')):
                 bot.tracker.add_action(e.user.id, 'role_update')
                 n,d = bot.db.get_action_limit('antirole')
                 if n and d:
@@ -1094,6 +1249,8 @@ async def on_guild_role_update(b,a):
 
 @bot.event
 async def on_guild_update(b,a):
+    if not a.guild: return
+    
     if bot.db.get_module_status('antimodif'):
         bk = bot.db.get_guild_backup(a.id)
         if not bk:
@@ -1101,7 +1258,7 @@ async def on_guild_update(b,a):
             return
         
         async for e in a.audit_logs(limit=1, action=discord.AuditLogAction.guild_update):
-            if not (bot.db.is_sys(e.user.id) or bot.db.is_whitelisted(e.user.id, 'guild')):
+            if not (bot.db.is_sys(a.id, e.user.id) or bot.db.is_whitelisted(a.id, e.user.id, 'guild')):
                 mods = []
                 if b.name != a.name:
                     mods.append("le nom")
@@ -1141,11 +1298,13 @@ async def on_guild_update(b,a):
 
 @bot.event
 async def on_member_update(b,a):
+    if not a.guild: return
+    
     if len(b.roles) < len(a.roles):
         new = [r for r in a.roles if r not in b.roles]
         for r in new:
             if bot.db.is_limit_role(r.id):
-                if not (bot.db.is_sys(a.id) or bot.db.is_whitelisted(a.id)):
+                if not (bot.db.is_sys(a.guild.id, a.id) or bot.db.is_whitelisted(a.guild.id, a.id)):
                     await a.remove_roles(r, reason="Role limite")
 
 if __name__ == "__main__":
