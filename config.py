@@ -1,6 +1,5 @@
 # config.py
-import os
-OWNER_IDS = [1399234120214909010, 1425947830463365120]
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+BOT_TOKEN = "ton_token_ici"
+OWNER_IDS = [497126437258788864, 123456789012345678]  # Ajoute toutes les IDs que tu veux
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN non defini")
